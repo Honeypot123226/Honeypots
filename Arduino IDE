@@ -1,0 +1,105 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// =====================
+// Wi-Fi 정보 수정
+// =====================
+const char* ssid = "WHKNU";
+const char* password = "";
+
+// =====================
+// 라즈베리파이 서버 주소 수정
+// 현재 라즈베리파이 IP가 172.20.10.2면 아래 그대로 사용
+// =====================
+const char* serverUrl = "http://172.17.193.27:5000/record/mode1/pir";
+
+// PIR 센서 OUT 핀
+const int pirPin = 13;
+
+// 이전 상태 저장
+int lastState = LOW;
+
+// 연속 촬영 방지
+unsigned long lastSendTime = 0;
+const unsigned long cooldown = 15000;  // 15초 쿨타임
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pirPin, INPUT);
+
+  Serial.println("ESP32 PIR Mode1 시작");
+  Serial.println("Wi-Fi 연결 중...");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  int retry = 0;
+  while (WiFi.status() != WL_CONNECTED && retry < 60) {
+    delay(50);
+    Serial.print(".");
+    retry++;
+  }
+
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("Wi-Fi 연결 완료");
+    Serial.print("ESP32 IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("Wi-Fi 연결 실패");
+    Serial.print("WiFi status code: ");
+    Serial.println(WiFi.status());
+  }
+
+  Serial.println("PIR 센서 안정화 중... 10초 대기");
+  delay(10000);
+  Serial.println("모션 감지 대기 시작");
+}
+
+void loop() {
+  int currentState = digitalRead(pirPin);
+
+  Serial.print("PIR = ");
+  Serial.println(currentState);
+
+  // LOW -> HIGH로 바뀌는 순간만 감지
+  if (currentState == HIGH && lastState == LOW) {
+    unsigned long now = millis();
+
+    if (now - lastSendTime >= cooldown) {
+      Serial.println("모션 감지! 라즈베리파이에 mode1 촬영 요청 전송");
+
+      if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        http.begin(serverUrl);
+
+        // server.py의 /record/mode1/pir는 POST 방식이므로 POST 전송
+        int httpCode = http.POST("");
+
+        Serial.print("HTTP 응답 코드: ");
+        Serial.println(httpCode);
+
+        if (httpCode > 0) {
+          String payload = http.getString();
+          Serial.println("서버 응답:");
+          Serial.println(payload);
+        } else {
+          Serial.println("라즈베리파이 서버 연결 실패");
+        }
+
+        http.end();
+      } else {
+        Serial.println("Wi-Fi 연결 끊김. 재연결 시도 중...");
+        WiFi.begin(ssid, password);
+      }
+
+      lastSendTime = now;
+    } else {
+      Serial.println("쿨타임 중이라 촬영 요청 안 보냄");
+    }
+  }
+
+  lastState = currentState;
+  delay(500);
+}
