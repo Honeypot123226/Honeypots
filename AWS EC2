@@ -1,0 +1,299 @@
+from flask import Flask, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
+import os
+import threading
+import requests
+app = Flask(__name__)
+
+# =========================
+# 기본 설정
+# =========================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VIDEO_DIR = os.path.join(BASE_DIR, "video")
+os.makedirs(VIDEO_DIR, exist_ok=True)
+
+# AWS EC2 퍼블릭 IP로 수정
+SERVER_URL = " "
+TELEGRAM_BOT_TOKEN = " "
+TELEGRAM_CHAT_ID = " "
+
+MODE_PREFIX = {
+    "mode1": "pir",
+    "mode2": "app",
+    "mode3": "schedule"
+}
+
+command_lock = threading.Lock()
+command_queue = []
+
+
+# =========================
+# 공통 함수
+# =========================
+
+def is_valid_mode(mode):
+    return mode in MODE_PREFIX
+
+
+def add_command(command):
+    with command_lock:
+        command_queue.append(command)
+def get_videos_by_mode(mode):
+    prefix = MODE_PREFIX[mode]
+
+    files = sorted(
+        [
+            f for f in os.listdir(VIDEO_DIR)
+            if f.endswith(".mp4") and f.startswith(prefix + "_")
+        ],
+        reverse=True
+    )
+
+    videos = []
+
+    for filename in files:
+        videos.append({
+            "filename": filename,
+            "url": f"{SERVER_URL}/{mode}/video/{filename}"
+        })
+
+    return jsonify({
+        "status": "success",
+        "videos": videos
+    })
+
+
+def send_video_file(filename):
+    response = send_from_directory(VIDEO_DIR, filename, mimetype="video/mp4")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["Accept-Ranges"] = "bytes"
+    return response
+# =========================
+# 서버 확인
+# =========================
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "success",
+        "message": "AWS Video Server Running"
+    })
+
+
+# =========================
+# 라즈베리파이 → AWS 영상 업로드
+# =========================
+
+def send_telegram_alert(video_url):
+    message = f"🚨 움직임이 감지되었습니다. 아래 링크에서 영상을 확인하세요.\n{video_url}"
+
+    url = f" "
+
+    params = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=10)
+
+        if response.status_code == 200:
+            print("[TELEGRAM] 전송 성공")
+        else:
+            print("[TELEGRAM] 전송 실패:", response.text)
+
+    except Exception as e:
+        print("[TELEGRAM] 오류:", e)
+
+@app.route("/upload/<mode>", methods=["POST"])
+def upload_video(mode):
+    if not is_valid_mode(mode):
+        return jsonify({
+            "status": "fail",
+            "message": "invalid mode"
+        }), 400
+
+    if "video" not in request.files:
+        return jsonify({
+            "status": "fail",
+            "message": "no video file"
+        }), 400
+
+    video = request.files["video"]
+
+    if video.filename == "":
+        return jsonify({
+            "status": "fail",
+            "message": "empty filename"
+        }), 400
+
+    filename = secure_filename(video.filename)
+    save_path = os.path.join(VIDEO_DIR, filename)
+
+    video.save(save_path)
+
+    print(f"[UPLOAD] {mode}: {filename}")
+
+    video_url = f"{SERVER_URL}/{mode}/video/{filename}"
+# Mode1, 즉 PIR 감지 영상일 때만 텔레그램 알림 전송
+    if mode == "mode1":
+        threading.Thread(
+            target=send_telegram_alert,
+            args=(video_url,),
+            daemon=True
+        ).start()
+
+    return jsonify({
+        "status": "success",
+        "message": "video uploaded",
+        "filename": filename,
+        "url": video_url
+    })
+
+
+# =========================
+# 앱 API: 영상 목록
+# 앱 코드와 정확히 일치
+# =========================
+
+@app.route("/mode1/videos", methods=["GET"])
+def mode1_videos():
+    return get_videos_by_mode("mode1")
+
+
+@app.route("/mode2/videos", methods=["GET"])
+def mode2_videos():
+    return get_videos_by_mode("mode2")
+
+
+@app.route("/mode3/videos", methods=["GET"])
+def mode3_videos():
+    return get_videos_by_mode("mode3")
+# =========================
+# 앱 API: 영상 재생 URL
+# =========================
+
+@app.route("/mode1/video/<filename>", methods=["GET"])
+def mode1_video_file(filename):
+    return send_video_file(filename)
+
+
+@app.route("/mode2/video/<filename>", methods=["GET"])
+def mode2_video_file(filename):
+    return send_video_file(filename)
+
+
+@app.route("/mode3/video/<filename>", methods=["GET"])
+def mode3_video_file(filename):
+    return send_video_file(filename)
+
+
+# =========================
+# 앱 API: Mode2 촬영 시작/종료
+# 앱 코드와 정확히 일치
+# =========================
+@app.route("/mode2/start", methods=["POST"])
+def mode2_start():
+    add_command({
+        "type": "mode2_start"
+    })
+
+    print("[COMMAND QUEUE] mode2_start")
+
+    return jsonify({
+        "status": "success",
+        "message": "mode2 start command queued"
+    })
+
+
+@app.route("/mode2/stop", methods=["POST"])
+def mode2_stop():
+    add_command({
+        "type": "mode2_stop"
+    })
+
+    print("[COMMAND QUEUE] mode2_stop")
+
+    return jsonify({
+        "status": "success",
+        "message": "mode2 stop command queued"
+    })
+
+
+# =========================
+# 앱 API: Mode3 예약
+# 앱 코드와 정확히 일치
+# =========================
+@app.route("/schedule/mode3", methods=["POST"])
+def schedule_mode3():
+    data = request.get_json() or {}
+
+    duration = int(data.get("duration", 10))
+
+    command = {
+        "type": "mode3_schedule",
+        "duration": duration
+    }
+
+    # 방식 1: 특정 시간 구간 반복 촬영
+    # 예:
+    # {
+    #   "startTime": "15:00",
+    #   "endTime": "16:00",
+    #   "interval": 60,
+    #   "duration": 10
+    # }
+    if "startTime" in data and "endTime" in data:
+        command["startTime"] = data.get("startTime")
+        command["endTime"] = data.get("endTime")
+        command["interval"] = int(data.get("interval", 60))
+
+    # 방식 2: 몇 초 뒤 한 번 촬영
+    # 예:
+    # {
+    #   "delay": 60,
+    #   "duration": 10
+    # }
+    else:
+        command["delay"] = int(data.get("delay", 0))
+
+    add_command(command)
+    print("[COMMAND QUEUE] mode3_schedule:", command)
+
+    return jsonify({
+        "status": "success",
+        "message": "mode3 schedule command queued"
+    })
+
+
+# =========================
+# 라즈베리파이 → AWS 명령 가져가기
+# 라즈베리파이가 2초마다 호출
+# =========================
+
+@app.route("/commands/pop", methods=["GET"])
+def pop_command():
+    with command_lock:
+        if len(command_queue) == 0:
+            return jsonify({
+                "status": "success",
+                "type": "none"
+            })
+
+        command = command_queue.pop(0)
+
+    print("[COMMAND POP]", command)
+
+    return jsonify({
+        "status": "success",
+        "command": command
+    })
+# =========================
+# 실행
+# =========================
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
