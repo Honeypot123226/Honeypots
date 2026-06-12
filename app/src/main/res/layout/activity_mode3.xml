@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <Button
+        android:id="@+id/startTimeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="촬영 시작 시간 설정" />
+
+    <Button
+        android:id="@+id/endTimeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="촬영 종료 시간 설정" />
+
+    <EditText
+        android:id="@+id/durationEditText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="1회 촬영 시간(초)"
+        android:inputType="number" />
+
+    <Button
+        android:id="@+id/scheduleButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="예약 등록" />
+
+    <Button
+        android:id="@+id/refreshButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="목록 새로고침" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

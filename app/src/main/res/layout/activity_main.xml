@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp">
+
+    <Button
+        android:id="@+id/mode1Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mode1 - PIR 감지 영상"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/mode2Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mode2 - 수동 촬영" />
+
+    <Button
+        android:id="@+id/mode3Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mode3 - 예약 촬영"
+        android:layout_marginTop="16dp" />
+</LinearLayout>
